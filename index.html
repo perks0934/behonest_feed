@@ -43,28 +43,57 @@
 </head>
 <body>
 
-<div id="feed">
-
-  <div class="slide">
-    <video src="bh_clip00028788.mov" muted loop playsinline></video>
-  </div>
-
-  <div class="slide">
-    <video src="bh_clip00029150.mov" muted loop playsinline></video>
-  </div>
-
-  <div class="slide">
-    <video src="bh_clip00030078.mov" muted loop playsinline></video>
-  </div>
-
-  <div class="slide">
-    <video src="bh_clip00062196.mov" muted loop playsinline></video>
-  </div>
-
-</div>
+<div id="feed"></div>
 
 <script>
+  const SRCS = [
+    'bh_clip00028788.mov',
+    'bh_clip00029150.mov',
+    'bh_clip00030078.mov',
+    'bh_clip00062196.mov'
+  ];
+
   const feed = document.getElementById('feed');
+
+  // precarichiamo tutti i video una volta sola
+  const videoPool = SRCS.map(src => {
+    const v = document.createElement('video');
+    v.src = src;
+    v.muted = true;
+    v.loop = true;
+    v.playsInline = true;
+    v.setAttribute('playsinline', '');
+    v.preload = 'auto';
+    return v;
+  });
+
+  function createSlide(srcIndex) {
+    const slide = document.createElement('div');
+    slide.className = 'slide';
+    slide.dataset.src = SRCS[srcIndex];
+    // clone il video element così il browser riusa la risorsa già in cache
+    const v = document.createElement('video');
+    v.src = SRCS[srcIndex];
+    v.muted = true;
+    v.loop = true;
+    v.playsInline = true;
+    v.setAttribute('playsinline', '');
+    v.preload = 'none'; // non ricaricare, la cache fa il lavoro
+    slide.appendChild(v);
+    return slide;
+  }
+
+  let slideCount = 0;
+
+  function appendBatch() {
+    SRCS.forEach((_, i) => {
+      const slide = createSlide(i);
+      feed.appendChild(slide);
+      playObserver.observe(slide);
+      snapObserver.observe(slide);
+      slideCount++;
+    });
+  }
 
   // ----- autoplay / pause -----
   const playObserver = new IntersectionObserver((entries) => {
@@ -80,92 +109,71 @@
     });
   }, { threshold: 0.3 });
 
-  function observeSlides() {
-    feed.querySelectorAll('.slide:not([data-observed])').forEach(slide => {
-      slide.setAttribute('data-observed', '1');
-      playObserver.observe(slide);
-    });
-  }
-  observeSlides();
+  // ----- snap: quando lo scroll si ferma, centra il video più vicino -----
+  let snapTimer = null;
+  let snapping = false;
 
-  // ----- infinite scroll -----
-  const originalSlides = Array.from(feed.querySelectorAll('.slide'));
+  const snapObserver = new IntersectionObserver(() => {}, {}); // placeholder, usiamo scroll event
 
-  function appendClones() {
-    originalSlides.forEach(slide => {
-      const clone = slide.cloneNode(true);
-      clone.removeAttribute('data-observed');
-      feed.appendChild(clone);
-    });
-    observeSlides();
-  }
-  appendClones();
-  appendClones();
-
-  window.addEventListener('scroll', () => {
-    const scrollBottom = window.scrollY + window.innerHeight;
-    const docHeight = document.documentElement.scrollHeight;
-    if (docHeight - scrollBottom < window.innerHeight * 2) appendClones();
-  }, { passive: true });
-
-  // ----- snap manuale: trova il video più vicino al centro e scrolla ad esso -----
-  let scrollTimer = null;
-  let isAutoScrolling = false;
-
-  function snapToNearest() {
-    if (isAutoScrolling) return;
+  function getClosestSlide() {
     const slides = feed.querySelectorAll('.slide');
-    const viewportCenter = window.scrollY + window.innerHeight / 2;
+    const viewCenter = window.scrollY + window.innerHeight / 2;
     let closest = null;
     let minDist = Infinity;
-
     slides.forEach(slide => {
-      const rect = slide.getBoundingClientRect();
-      const slideCenter = window.scrollY + rect.top + rect.height / 2;
-      const dist = Math.abs(slideCenter - viewportCenter);
-      if (dist < minDist) {
-        minDist = dist;
-        closest = slideCenter;
-      }
+      const top = slide.getBoundingClientRect().top + window.scrollY;
+      const center = top + slide.offsetHeight / 2;
+      const dist = Math.abs(center - viewCenter);
+      if (dist < minDist) { minDist = dist; closest = center; }
     });
-
-    if (closest !== null) {
-      const targetY = closest - window.innerHeight / 2;
-      isAutoScrolling = true;
-      window.scrollTo({ top: targetY, behavior: 'smooth' });
-      setTimeout(() => { isAutoScrolling = false; }, 600);
-    }
+    return closest;
   }
 
   window.addEventListener('scroll', () => {
-    clearTimeout(scrollTimer);
-    scrollTimer = setTimeout(snapToNearest, 120);
+    if (snapping) return;
+    clearTimeout(snapTimer);
+    snapTimer = setTimeout(() => {
+      const center = getClosestSlide();
+      if (center === null) return;
+      const targetY = center - window.innerHeight / 2;
+      snapping = true;
+      window.scrollTo({ top: targetY, behavior: 'smooth' });
+      setTimeout(() => { snapping = false; }, 500);
+    }, 150);
+
+    // infinite scroll
+    const scrollBottom = window.scrollY + window.innerHeight;
+    const docHeight = document.documentElement.scrollHeight;
+    if (docHeight - scrollBottom < window.innerHeight * 2) appendBatch();
   }, { passive: true });
 
-  // ----- autoscroll lento verso il basso -----
-  let autoScrollPaused = false;
-  let userScrollTimer = null;
+  // ----- autoscroll lento -----
+  let autoScrollInterval = null;
+  let touchActive = false;
 
-  function autoScroll() {
-    if (!autoScrollPaused) {
-      window.scrollBy({ top: 0.6, behavior: 'instant' });
-    }
-    requestAnimationFrame(autoScroll);
+  function startAutoScroll() {
+    if (autoScrollInterval) return;
+    autoScrollInterval = setInterval(() => {
+      if (!touchActive && !snapping) {
+        window.scrollBy(0, 0.7);
+      }
+    }, 16);
   }
 
-  // pausa l'autoscroll quando l'utente tocca/scrolla
   window.addEventListener('touchstart', () => {
-    autoScrollPaused = true;
-    clearTimeout(userScrollTimer);
+    touchActive = true;
+    clearTimeout(snapTimer);
   }, { passive: true });
 
   window.addEventListener('touchend', () => {
-    userScrollTimer = setTimeout(() => {
-      autoScrollPaused = false;
-    }, 2000); // riprende 2s dopo che l'utente smette di toccare
+    // aspetta che il momentum scroll finisca prima di riattivare
+    setTimeout(() => { touchActive = false; }, 1800);
   }, { passive: true });
 
-  requestAnimationFrame(autoScroll);
+  // primo batch + avvio
+  appendBatch();
+  appendBatch();
+  startAutoScroll();
 </script>
 
 </body>
