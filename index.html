@@ -21,20 +21,17 @@
     background: #e8e4e0;
   }
 
-  html {
-    scroll-snap-type: y proximity;
-  }
-
   #feed {
     width: 100%;
     display: flex;
     flex-direction: column;
-    gap: 75vw;
-    padding: 37vw 0;
+    align-items: center;
+    gap: 80px;
+    padding: 80px 0 160px;
   }
 
   .slide {
-    scroll-snap-align: center;
+    width: 78%;
   }
 
   .slide video {
@@ -69,7 +66,8 @@
 <script>
   const feed = document.getElementById('feed');
 
-  const observer = new IntersectionObserver((entries) => {
+  // ----- autoplay / pause -----
+  const playObserver = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
       const video = entry.target.querySelector('video');
       if (!video) return;
@@ -85,11 +83,12 @@
   function observeSlides() {
     feed.querySelectorAll('.slide:not([data-observed])').forEach(slide => {
       slide.setAttribute('data-observed', '1');
-      observer.observe(slide);
+      playObserver.observe(slide);
     });
   }
   observeSlides();
 
+  // ----- infinite scroll -----
   const originalSlides = Array.from(feed.querySelectorAll('.slide'));
 
   function appendClones() {
@@ -100,17 +99,73 @@
     });
     observeSlides();
   }
-
   appendClones();
   appendClones();
 
   window.addEventListener('scroll', () => {
     const scrollBottom = window.scrollY + window.innerHeight;
     const docHeight = document.documentElement.scrollHeight;
-    if (docHeight - scrollBottom < window.innerHeight * 2) {
-      appendClones();
-    }
+    if (docHeight - scrollBottom < window.innerHeight * 2) appendClones();
   }, { passive: true });
+
+  // ----- snap manuale: trova il video più vicino al centro e scrolla ad esso -----
+  let scrollTimer = null;
+  let isAutoScrolling = false;
+
+  function snapToNearest() {
+    if (isAutoScrolling) return;
+    const slides = feed.querySelectorAll('.slide');
+    const viewportCenter = window.scrollY + window.innerHeight / 2;
+    let closest = null;
+    let minDist = Infinity;
+
+    slides.forEach(slide => {
+      const rect = slide.getBoundingClientRect();
+      const slideCenter = window.scrollY + rect.top + rect.height / 2;
+      const dist = Math.abs(slideCenter - viewportCenter);
+      if (dist < minDist) {
+        minDist = dist;
+        closest = slideCenter;
+      }
+    });
+
+    if (closest !== null) {
+      const targetY = closest - window.innerHeight / 2;
+      isAutoScrolling = true;
+      window.scrollTo({ top: targetY, behavior: 'smooth' });
+      setTimeout(() => { isAutoScrolling = false; }, 600);
+    }
+  }
+
+  window.addEventListener('scroll', () => {
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(snapToNearest, 120);
+  }, { passive: true });
+
+  // ----- autoscroll lento verso il basso -----
+  let autoScrollPaused = false;
+  let userScrollTimer = null;
+
+  function autoScroll() {
+    if (!autoScrollPaused) {
+      window.scrollBy({ top: 0.6, behavior: 'instant' });
+    }
+    requestAnimationFrame(autoScroll);
+  }
+
+  // pausa l'autoscroll quando l'utente tocca/scrolla
+  window.addEventListener('touchstart', () => {
+    autoScrollPaused = true;
+    clearTimeout(userScrollTimer);
+  }, { passive: true });
+
+  window.addEventListener('touchend', () => {
+    userScrollTimer = setTimeout(() => {
+      autoScrollPaused = false;
+    }, 2000); // riprende 2s dopo che l'utente smette di toccare
+  }, { passive: true });
+
+  requestAnimationFrame(autoScroll);
 </script>
 
 </body>
