@@ -18,15 +18,23 @@
 
   html, body {
     width: 100%;
-    background: #f5f0e8;
+    background: #e8e4e0;
+  }
+
+  html {
+    scroll-snap-type: y proximity;
   }
 
   #feed {
     width: 100%;
     display: flex;
     flex-direction: column;
-    gap: 48px;
-    padding: 48px 0;
+    gap: 75vw;
+    padding: 37vw 0;
+  }
+
+  .slide {
+    scroll-snap-align: center;
   }
 
   .slide video {
@@ -61,7 +69,6 @@
 <script>
   const feed = document.getElementById('feed');
 
-  // autoplay/pause
   const observer = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
       const video = entry.target.querySelector('video');
@@ -76,26 +83,27 @@
   }, { threshold: 0.3 });
 
   function observeSlides() {
-    feed.querySelectorAll('.slide').forEach(slide => observer.observe(slide));
+    feed.querySelectorAll('.slide:not([data-observed])').forEach(slide => {
+      slide.setAttribute('data-observed', '1');
+      observer.observe(slide);
+    });
   }
   observeSlides();
 
-  // infinite scroll: clona il feed quando si avvicina al fondo
   const originalSlides = Array.from(feed.querySelectorAll('.slide'));
 
   function appendClones() {
     originalSlides.forEach(slide => {
       const clone = slide.cloneNode(true);
+      clone.removeAttribute('data-observed');
       feed.appendChild(clone);
     });
     observeSlides();
   }
 
-  // appende un batch iniziale per avere abbastanza contenuto
   appendClones();
   appendClones();
 
-  // controlla la posizione di scroll e aggiunge altri quando necessario
   window.addEventListener('scroll', () => {
     const scrollBottom = window.scrollY + window.innerHeight;
     const docHeight = document.documentElement.scrollHeight;
